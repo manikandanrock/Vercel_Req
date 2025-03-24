@@ -181,7 +181,7 @@ const Chatbot = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
   const messagesEndRef = useRef(null);
-  const API_BASE_URL ='https://ec2-52-53-255-143.us-west-1.compute.amazonaws.com';
+  const API_BASE_URL ='http://ec2-52-53-255-143.us-west-1.compute.amazonaws.com';
 
   const scrollToBottom = () => {
       messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
