@@ -4,7 +4,7 @@ import qs from 'qs';
 import './Dashboard.css';
 import JiraIntegrationModal from './JiraIntegrationModal';
 
-const API_BASE_URL = process.env.REACT_APP_API_BASE_URL || 'http://localhost:5000';
+const API_BASE_URL = 'http://ec2-52-53-255-143.us-west-1.compute.amazonaws.com';
 
 const Dashboard = () => {
   const [requirements, setRequirements] = useState([]);
