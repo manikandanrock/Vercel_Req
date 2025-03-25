@@ -54,6 +54,7 @@ const Dashboard = () => {
         const response = await axios.get(`${API_BASE_URL}/api/requirements/stats`, {
           params: { project: selectedProject }
         });
+        console.log('Overall Stats Response:', response.data);
         setOverallStats(response.data);
       } catch (error) {
         console.error('Error fetching overall stats:', error);
@@ -83,11 +84,14 @@ const Dashboard = () => {
             search: searchQuery,
             ...filters,
             page: pagination.page,
+            per_page: 10, // Ensure per_page is explicitly set
           },
           paramsSerializer: params => qs.stringify(params, { arrayFormat: 'repeat' })
         });
 
         const { requirements, stats, page, pages, total } = response.data;
+        console.log('Requirements Response:', response.data);
+        console.log('Filtered Stats:', stats);
         setRequirements(requirements || []);
         setFilteredStats(stats || { total: 0, approved: 0, inReview: 0, disapproved: 0, totalHours: 0 });
         setPagination({ page: page || 1, pages: pages || 1, total: total || 0 });
