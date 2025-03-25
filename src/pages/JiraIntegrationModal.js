@@ -38,7 +38,7 @@ const JiraIntegrationModal = ({ isOpen, onClose, onConnect }) => {
       // Debug: Log data before sending request
       console.log('Submitting Jira settings:', jiraSettings);
 
-      const response = await fetch('http://localhost:5000/api/jira/connect', {
+      const response = await fetch('https://ec2-52-53-255-143.us-west-1.compute.amazonaws.com/api/jira/connect', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
