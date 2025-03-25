@@ -4,12 +4,12 @@ import qs from 'qs';
 import './Dashboard.css';
 import JiraIntegrationModal from './JiraIntegrationModal';
 
-const API_BASE_URL ='https://ec2-52-53-255-143.us-west-1.compute.amazonaws.com';
+const API_BASE_URL = 'http://localhost:5000';
 
 const Dashboard = () => {
   const [requirements, setRequirements] = useState([]);
-  const [overallStats, setOverallStats] = useState({ total: 0, approved: 0, inReview: 0, disapproved: 0 });
-  const [filteredStats, setFilteredStats] = useState({ total: 0, approved: 0, inReview: 0, disapproved: 0 });
+  const [overallStats, setOverallStats] = useState({ total: 0, approved: 0, inReview: 0, disapproved: 0, totalHours: 0 });
+  const [filteredStats, setFilteredStats] = useState({ total: 0, approved: 0, inReview: 0, disapproved: 0, totalHours: 0 });
   const [searchQuery, setSearchQuery] = useState('');
   const [filters, setFilters] = useState({ type: [], status: [], complexity: [], priority: [] });
   const [loading, setLoading] = useState(false);
@@ -25,16 +25,10 @@ const Dashboard = () => {
 
   const isValidProjectId = (id) => Number.isInteger(id) && id > 0;
 
-  const calculateCosts = (reqs) => {
-    const totalHours = reqs.reduce((sum, req) => sum + (req.estimated_time || 0), 0);
-    return {
-      totalHours,
-      totalCost: totalHours * hourlyRate
-    };
-  };
-
-  const currentCosts = calculateCosts(requirements);
-  const overallCosts = calculateCosts(requirements);
+  const calculateCosts = (totalHours) => ({
+    totalHours: totalHours || 0,
+    totalCost: (totalHours || 0) * hourlyRate
+  });
 
   useEffect(() => {
     const fetchProjects = async () => {
@@ -51,7 +45,10 @@ const Dashboard = () => {
 
   useEffect(() => {
     const fetchOverallStats = async () => {
-      if (!isValidProjectId(selectedProject)) return;
+      if (!isValidProjectId(selectedProject)) {
+        setOverallStats({ total: 0, approved: 0, inReview: 0, disapproved: 0, totalHours: 0 });
+        return;
+      }
 
       try {
         const response = await axios.get(`${API_BASE_URL}/api/requirements/stats`, {
@@ -60,7 +57,8 @@ const Dashboard = () => {
         setOverallStats(response.data);
       } catch (error) {
         console.error('Error fetching overall stats:', error);
-        setError('Failed to load statistics. Please try again.');
+        setError('Failed to load overall statistics. Please try again.');
+        setOverallStats({ total: 0, approved: 0, inReview: 0, disapproved: 0, totalHours: 0 });
       }
     };
     fetchOverallStats();
@@ -68,7 +66,12 @@ const Dashboard = () => {
 
   useEffect(() => {
     const fetchRequirements = async () => {
-      if (!isValidProjectId(selectedProject)) return;
+      if (!isValidProjectId(selectedProject)) {
+        setRequirements([]);
+        setFilteredStats({ total: 0, approved: 0, inReview: 0, disapproved: 0, totalHours: 0 });
+        setPagination({ page: 1, pages: 1, total: 0 });
+        return;
+      }
 
       setLoading(true);
       setError('');
@@ -80,30 +83,19 @@ const Dashboard = () => {
             search: searchQuery,
             ...filters,
             page: pagination.page,
-            stats: true
           },
           paramsSerializer: params => qs.stringify(params, { arrayFormat: 'repeat' })
         });
 
-        const filteredRequirements = response.data.requirements || [];
-        const newFilteredStats = {
-          total: filteredRequirements.length,
-          approved: filteredRequirements.filter(r => r.status === 'Approved').length,
-          inReview: filteredRequirements.filter(r => r.status === 'Review').length,
-          disapproved: filteredRequirements.filter(r => r.status === 'Disapproved').length,
-        };
-
-        setRequirements(filteredRequirements);
-        setFilteredStats(newFilteredStats);
-        setPagination({
-          page: response.data.page || 1,
-          pages: response.data.pages || 1,
-          total: response.data.total || 0,
-        });
+        const { requirements, stats, page, pages, total } = response.data;
+        setRequirements(requirements || []);
+        setFilteredStats(stats || { total: 0, approved: 0, inReview: 0, disapproved: 0, totalHours: 0 });
+        setPagination({ page: page || 1, pages: pages || 1, total: total || 0 });
       } catch (error) {
         console.error('Error fetching requirements:', error);
         setError(error.response?.data?.error || 'Failed to load requirements');
         setRequirements([]);
+        setFilteredStats({ total: 0, approved: 0, inReview: 0, disapproved: 0, totalHours: 0 });
       } finally {
         setLoading(false);
       }
@@ -126,17 +118,13 @@ const Dashboard = () => {
   const exportData = () => {
     if (!selectedProjectData) return;
 
-    const totalHours = requirements.reduce((sum, req) => sum + (req.estimated_time || 0), 0);
-    const totalCost = totalHours * hourlyRate;
-
     const csvContent = [
       ['Project Name', selectedProjectData.name],
       ['Hourly Rate', `$${hourlyRate.toFixed(2)}`],
       [],
-      ['ID', 'Requirement', 'Status', 'Priority', 'Complexity', 'Author', 'Date', 
-       'Hours', 'Cost', 'Cost/Hour'],
+      ['ID', 'Requirement', 'Status', 'Priority', 'Complexity', 'Author', 'Date', 'Hours', 'Cost', 'Cost/Hour'],
       ...requirements.map(req => {
-        const cost = req.estimated_time * hourlyRate;
+        const cost = (req.estimated_time || 0) * hourlyRate;
         return [
           req.id,
           `"${req.requirement.replace(/"/g, '""')}"`,
@@ -145,14 +133,16 @@ const Dashboard = () => {
           req.complexity,
           req.author,
           new Date(req.date).toISOString().split('T')[0],
-          req.estimated_time,
+          req.estimated_time || 0,
           `$${cost.toFixed(2)}`,
           `$${hourlyRate.toFixed(2)}`
         ];
       }),
       [],
-      ['Total Hours', totalHours],
-      ['Total Cost', `$${totalCost.toFixed(2)}`]
+      ['Total Hours (Filtered)', filteredStats.totalHours],
+      ['Total Cost (Filtered)', `$${filteredStats.totalHours * hourlyRate.toFixed(2)}`],
+      ['Total Hours (Overall)', overallStats.totalHours],
+      ['Total Cost (Overall)', `$${overallStats.totalHours * hourlyRate.toFixed(2)}`]
     ].map(e => e.join(',')).join('\n');
 
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
@@ -200,20 +190,13 @@ const Dashboard = () => {
     } catch (error) {
       console.error('Jira push failed:', error);
       let errorMessage = error.response?.data?.error || error.message;
-      
-      if (errorMessage.includes('Unauthorized')) {
-        errorMessage += '\n\nPlease reconnect Jira integration';
-      }
-      if (errorMessage.includes('projectKey')) {
-        errorMessage += '\n\nVerify project key exists in Jira';
-      }
-      if (errorMessage.includes('issuetype')) {
-        errorMessage += '\n\nCheck project has valid issue types';
-      }
-
+      if (errorMessage.includes('Unauthorized')) errorMessage += '\n\nPlease reconnect Jira integration';
+      if (errorMessage.includes('projectKey')) errorMessage += '\n\nVerify project key exists in Jira';
+      if (errorMessage.includes('issuetype')) errorMessage += '\n\nCheck project has valid issue types';
       alert(`Jira push failed!\n\n${errorMessage}`);
     }
   };
+
   const handleProjectChange = (e) => {
     const value = e.target.value;
     const projectId = value ? parseInt(value, 10) : null;
@@ -271,13 +254,13 @@ const Dashboard = () => {
             <StatSection 
               title="Overall Statistics" 
               stats={overallStats}
-              costs={overallCosts}
+              costs={calculateCosts(overallStats.totalHours)}
               hourlyRate={hourlyRate}
             />
             <StatSection 
               title="Filtered Statistics" 
               stats={filteredStats}
-              costs={currentCosts}
+              costs={calculateCosts(filteredStats.totalHours)}
               hourlyRate={hourlyRate}
             />
           </div>
@@ -437,7 +420,7 @@ const RequirementCard = ({ requirement, onPushToJira, jiraConnected, hourlyRate 
         <div className="cost-details">
           <span className="cost-item">
             <span className="cost-label">Hours:</span>
-            <span className="cost-value">{requirement.estimated_time}h</span>
+            <span className="cost-value">{requirement.estimated_time || 0}h</span>
           </span>
           <span className="cost-item">
             <span className="cost-label">Rate:</span>
