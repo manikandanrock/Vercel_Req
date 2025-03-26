@@ -281,7 +281,7 @@ const Dashboard = () => {
             <div className="requirements-list">
               {error && (
                 <div className="error-message">
-                  ⚠️ {error}
+                  âš ï¸ {error}
                   <button onClick={() => window.location.reload()}>Retry</button>
                 </div>
               )}
@@ -438,7 +438,7 @@ const RequirementCard = ({ requirement, onPushToJira, jiraConnected, hourlyRate 
         <div className="metadata">
           <span className="complexity-badge">{requirement.complexity} complexity</span>
           <span className="author-date">
-            {requirement.author} • {new Date(requirement.date).toLocaleDateString()}
+            {requirement.author} â€¢ {new Date(requirement.date).toLocaleDateString()}
           </span>
           {requirement.status === 'Approved' && (
             <button
