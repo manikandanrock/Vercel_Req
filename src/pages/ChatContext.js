@@ -1,38 +1,47 @@
+// ChatContext.js
 import React, { createContext, useState, useEffect } from 'react';
 
-// Create a context for chat history
 const ChatContext = createContext();
 
-// ChatProvider component to wrap around the app
 export const ChatProvider = ({ children }) => {
-    const [messages, setMessages] = useState([]);
+  // Store messages as an object with project IDs as keys
+  const [messagesByProject, setMessagesByProject] = useState(() => {
+    const saved = localStorage.getItem('chatHistory');
+    return saved ? JSON.parse(saved) : {};
+  });
 
-    // Load chat history from localStorage on initial render
-    useEffect(() => {
-        const savedHistory = localStorage.getItem('chatHistory');
-        if (savedHistory) {
-            try {
-                const parsedHistory = JSON.parse(savedHistory);
-                if (Array.isArray(parsedHistory)) {
-                    setMessages(parsedHistory);
-                }
-            } catch (e) {
-                console.error('Error parsing chat history:', e);
-                localStorage.removeItem('chatHistory');
-            }
-        }
-    }, []);
+  // Update localStorage whenever messages change
+  useEffect(() => {
+    localStorage.setItem('chatHistory', JSON.stringify(messagesByProject));
+  }, [messagesByProject]);
 
-    // Save chat history to localStorage whenever messages change
-    useEffect(() => {
-        localStorage.setItem('chatHistory', JSON.stringify(messages));
-    }, [messages]);
+  // Get messages for a specific project
+  const getMessages = (projectId) => {
+    return messagesByProject[projectId] || [];
+  };
 
-    return (
-        <ChatContext.Provider value={{ messages, setMessages }}>
-            {children}
-        </ChatContext.Provider>
-    );
+  // Set messages for a specific project
+  const setMessages = (projectId, newMessages) => {
+    setMessagesByProject((prev) => ({
+      ...prev,
+      [projectId]: newMessages,
+    }));
+  };
+
+  // Clear messages for a specific project
+  const clearMessages = (projectId) => {
+    setMessagesByProject((prev) => {
+      const updated = { ...prev };
+      delete updated[projectId];
+      return updated;
+    });
+  };
+
+  return (
+    <ChatContext.Provider value={{ getMessages, setMessages, clearMessages }}>
+      {children}
+    </ChatContext.Provider>
+  );
 };
 
 export default ChatContext;
