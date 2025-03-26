@@ -17,7 +17,7 @@ function Upload() {
   const [renameProjectHourlyRate, setRenameProjectHourlyRate] = useState(30);
   const [newRequirement, setNewRequirement] = useState({
     requirement: '',
-    author: '',
+    author: 'instructors',
     priority: 'Medium',
     complexity: 'Moderate',
     estimated_time: 4,
@@ -26,7 +26,7 @@ function Upload() {
   });
   const [editingReq, setEditingReq] = useState({
     requirement: '',
-    author: '',
+    author: 'instructors',
     priority: 'Medium',
     complexity: 'Moderate',
     estimated_time: 4,
@@ -54,35 +54,45 @@ function Upload() {
     }
   }, [selectedProjectId]);
 
-  
-
   useEffect(() => {
     localStorage.setItem('activeTab', activeTab);
   }, [activeTab]);
 
-  useEffect(() => {
-    const fetchProjectsAndRequirements = async () => {
-      setLoading(prev => ({ ...prev, general: true }));
-      try {
-        const projectsResponse = await axios.get(`${API_BASE_URL}/api/projects`);
-        setProjects(projectsResponse.data);
+  const fetchProjectsAndRequirements = async () => {
+    setLoading(prev => ({ ...prev, general: true }));
+    try {
+      const projectsResponse = await axios.get(`${API_BASE_URL}/api/projects`);
+      setProjects(projectsResponse.data);
 
-        if (selectedProjectId) {
-          const requirementsResponse = await axios.get(
-            `${API_BASE_URL}/api/projects/${selectedProjectId}/requirements`
-          );
-          const requirements = requirementsResponse.data.map(req => ({
-            ...req,
-            categories: typeof req.categories === 'string' ? req.categories.split(', ') : req.categories || [],
-          }));
-          setRequirements(requirements);
-        }
-      } catch (err) {
-        setError('Failed to fetch data');
-      } finally {
-        setLoading(prev => ({ ...prev, general: false }));
+      if (selectedProjectId) {
+        await fetchRequirements();
       }
-    };
+    } catch (err) {
+      setError('Failed to fetch data');
+    } finally {
+      setLoading(prev => ({ ...prev, general: false }));
+    }
+  };
+
+  const fetchRequirements = async () => {
+    try {
+      const requirementsResponse = await axios.get(
+        `${API_BASE_URL}/api/projects/${selectedProjectId}/requirements`
+      );
+      const requirements = requirementsResponse.data.map(req => ({
+        ...req,
+        categories: typeof req.categories === 'string' ? req.categories.split(', ') : req.categories || [],
+        author: req.author || 'instructors',
+        estimated_time: req.estimated_time || 4,
+        date: req.date || new Date().toISOString(),
+      }));
+      setRequirements(requirements);
+    } catch (err) {
+      setError('Failed to fetch requirements');
+    }
+  };
+
+  useEffect(() => {
     fetchProjectsAndRequirements();
   }, [selectedProjectId]);
 
@@ -109,18 +119,13 @@ function Upload() {
 
     setLoading(prev => ({ ...prev, upload: true }));
     try {
-      const response = await axios.post(`${API_BASE_URL}/api/analyze`, formData, {
+      await axios.post(`${API_BASE_URL}/api/analyze`, formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
       });
 
-      const requirements = response.data.requirements.map(req => ({
-        ...req,
-        categories: typeof req.categories === 'string' ? req.categories.split(', ') : req.categories || [],
-      }));
-      setRequirements(requirements);
+      await fetchRequirements();
       setSelectedFile(null);
       setError(null);
-      alert('File uploaded successfully!');
     } catch (err) {
       setError('File upload failed');
     } finally {
@@ -231,34 +236,21 @@ function Upload() {
     }
 
     try {
-      const aiResponse = await axios.post(`${API_BASE_URL}/api/classify`, {
-        text: newRequirement.requirement,
-      });
-
-      const { categories, priority, complexity } = aiResponse.data;
       const response = await axios.post(
         `${API_BASE_URL}/api/projects/${selectedProjectId}/requirements`,
         {
           ...newRequirement,
-          categories: categories || [],
-          priority: priority || 'Medium',
-          complexity: complexity || 'Moderate',
           date: new Date(newRequirement.date).toISOString(),
+          author: newRequirement.author || 'instructors',
+          estimated_time: newRequirement.estimated_time || 4,
         }
       );
 
-      const newReq = {
-        ...response.data,
-        categories: typeof response.data.categories === 'string' 
-          ? response.data.categories.split(', ') 
-          : response.data.categories || [],
-      };
-
-      setRequirements(prev => [...prev, newReq]);
+      await fetchRequirements();
       setShowCreateModal(false);
       setNewRequirement({
         requirement: '',
-        author: '',
+        author: 'instructors',
         priority: 'Medium',
         complexity: 'Moderate',
         estimated_time: 4,
@@ -281,9 +273,11 @@ function Upload() {
         ...editingReq,
         date: new Date(editingReq.date).toISOString(),
         categories: editingReq.categories.join(', '),
+        author: editingReq.author || 'instructors',
+        estimated_time: editingReq.estimated_time || 4,
       });
 
-      setRequirements(prev => prev.map(req => req.id === editingReq.id ? editingReq : req));
+      await fetchRequirements();
       setShowEditModal(false);
     } catch (err) {
       setError(err.response?.data?.error || 'Failed to update requirement');
@@ -295,7 +289,7 @@ function Upload() {
 
     try {
       await axios.delete(`${API_BASE_URL}/api/requirements/${id}`);
-      setRequirements(prev => prev.filter(req => req.id !== id));
+      await fetchRequirements();
     } catch (err) {
       setError('Deletion failed');
     }
@@ -334,56 +328,42 @@ function Upload() {
       </div>
 
       {activeTab === 'projects' && (
-  <div className="projects-section">
-    <button onClick={() => setShowProjectModal(true)}>Create New Project</button>
-    {projects.map(project => {
-      // Calculate requirements count and cost dynamically
-      const projectRequirements = requirements.filter(req => req.project_id === project.id);
-      const totalCost = projectRequirements.reduce((sum, req) => 
-        sum + (req.estimated_time * project.hourly_rate), 0);
-      
-      return (
-        <div
-          key={project.id}
-          className={`project-item ${selectedProjectId === project.id ? 'selected' : ''}`}
-          onClick={() => setSelectedProjectId(project.id)}
-        >
-          <div className="project-header">
-            <div className="project-name">{project.name}</div>
-            <div className="project-rate">${project.hourly_rate}/h</div>
-          </div>
-          
-
-          <div className="project-description">{project.description}</div>
-          {/*
-          <div className="project-meta">
-            <span>Requirements: {projectRequirements.length}</span>
-            <span>Total Cost: ${totalCost.toFixed(2)}</span>
-          </div>
-          */}
-          <div className="project-actions">
-            <button onClick={(e) => {
-              e.stopPropagation();
-              setRenameProjectId(project.id);
-              setRenameProjectName(project.name);
-              setRenameProjectDescription(project.description || '');
-              setRenameProjectHourlyRate(project.hourly_rate);
-              setShowRenameModal(true);
-            }}>
-              Edit
-            </button>
-            <button onClick={(e) => {
-              e.stopPropagation();
-              deleteProject(project.id);
-            }}>
-              Delete
-            </button>
-          </div>
+        <div className="projects-section">
+          <button onClick={() => setShowProjectModal(true)}>Create New Project</button>
+          {projects.map(project => (
+            <div
+              key={project.id}
+              className={`project-item ${selectedProjectId === project.id ? 'selected' : ''}`}
+              onClick={() => setSelectedProjectId(project.id)}
+            >
+              <div className="project-header">
+                <div className="project-name">{project.name}</div>
+                <div className="project-rate">${project.hourly_rate}/h</div>
+              </div>
+              
+              <div className="project-description">{project.description}</div>
+              <div className="project-actions">
+                <button onClick={(e) => {
+                  e.stopPropagation();
+                  setRenameProjectId(project.id);
+                  setRenameProjectName(project.name);
+                  setRenameProjectDescription(project.description || '');
+                  setRenameProjectHourlyRate(project.hourly_rate);
+                  setShowRenameModal(true);
+                }}>
+                  Edit
+                </button>
+                <button onClick={(e) => {
+                  e.stopPropagation();
+                  deleteProject(project.id);
+                }}>
+                  Delete
+                </button>
+              </div>
+            </div>
+          ))}
         </div>
-      );
-    })}
-  </div>
-)}
+      )}
 
       {activeTab === 'upload' && selectedProjectId && (
         <div className="upload-section">
@@ -438,10 +418,10 @@ function Upload() {
               <div className="card-content">
                 <h3 dangerouslySetInnerHTML={sanitizeHTML(req.requirement)} />
                 <div className="meta-info">
-                  <span>📅 {new Date(req.date).toLocaleDateString()}</span>
-                  <span>👤 {req.author}</span>
-                  <span>⏱️ {req.estimated_time}h</span>
-                  <span>💰 ${(req.estimated_time * projectHourlyRate).toFixed(2)}</span>
+                  <span>&#x1F4C5; {new Date(req.date).toLocaleDateString()}</span> {/* Calendar */}
+                  <span>{String.fromCodePoint(0x1F464)} {req.author}</span> {/* Busts in silhouette */}
+                  <span>&#x23F1; {req.estimated_time}h</span> {/* Stopwatch */}
+                  <span>{String.fromCodePoint(0x1F4B0)} ${(req.estimated_time * projectHourlyRate).toFixed(2)}</span> {/* Money bag */}
                 </div>
                 <div className="categories">
                   {(req.categories ? (typeof req.categories === 'string' ? 
@@ -458,6 +438,7 @@ function Upload() {
                     ...req,
                     categories: typeof req.categories === 'string' ? 
                       req.categories.split(', ') : req.categories || [],
+                    author: req.author || 'instructors',
                   });
                   setShowEditModal(true);
                 }}>
@@ -472,303 +453,305 @@ function Upload() {
         </div>
       )}
 
-{showProjectModal && (
-  <div className="modal-overlay">
-    <div className="modal-content">
-      <h2>Create New Project</h2>
-      <div className="form-grid">
-        <div className="form-group">
-          <label>Project Name</label>
-          <input
-            type="text"
-            value={newProjectName}
-            onChange={(e) => setNewProjectName(e.target.value)}
-          />
-        </div>
-        <div className="form-group">
-          <label>Description</label>
-          <textarea
-            value={newProjectDescription}
-            onChange={(e) => setNewProjectDescription(e.target.value)}
-          />
-        </div>
-        <div className="form-group">
-          <label>Hourly Rate ($)</label>
-          <input
-            type="number"
-            step="0.01"
-            min="1"
-            value={newProjectHourlyRate}
-            onChange={(e) => setNewProjectHourlyRate(parseFloat(e.target.value) || 30)}
-          />
-        </div>
-      </div>
-      <div className="form-actions">
-        <button onClick={() => setShowProjectModal(false)}>Cancel</button>
-        <button className="create-btn" onClick={createProject}>
-          Create Project
-        </button>
-      </div>
-    </div>
-  </div>
-)}
-
-{showRenameModal && (
-  <div className="modal-overlay">
-    <div className="modal-content">
-      <h2>Edit Project</h2>
-      <div className="form-grid">
-        <div className="form-group">
-          <label>Project Name</label>
-          <input
-            type="text"
-            value={renameProjectName}
-            onChange={(e) => setRenameProjectName(e.target.value)}
-          />
-        </div>
-        <div className="form-group">
-          <label>Description</label>
-          <textarea
-            value={renameProjectDescription}
-            onChange={(e) => setRenameProjectDescription(e.target.value)}
-          />
-        </div>
-        <div className="form-group">
-          <label>Hourly Rate ($)</label>
-          <input
-            type="number"
-            step="0.01"
-            min="1"
-            value={renameProjectHourlyRate}
-            onChange={(e) => setRenameProjectHourlyRate(parseFloat(e.target.value))}
-          />
-        </div>
-      </div>
-      <div className="form-actions">
-        <button onClick={() => setShowRenameModal(false)}>Cancel</button>
-        <button className="update-btn" onClick={renameProject}>
-          Update Project
-        </button>
-      </div>
-    </div>
-  </div>
-)}
-
-{showEditModal && (
-  <div className="modal-overlay">
-    <div className="modal-content">
-      <h2>Edit Requirement</h2>
-      <div className="form-grid">
-        <div className="form-group">
-          <label>Requirement Text</label>
-          <textarea
-            value={editingReq?.requirement || ''}
-            onChange={(e) => setEditingReq({ ...editingReq, requirement: e.target.value })}
-          />
-        </div>
-
-        <div className="form-row">
-          <div className="form-group">
-            <label>Author</label>
-            <input
-              type="text"
-              value={editingReq?.author || ''}
-              onChange={(e) => setEditingReq({ ...editingReq, author: e.target.value })}
-            />
-          </div>
-          <div className="form-group">
-            <label>Date & Time</label>
-            <input
-              type="datetime-local"
-              value={new Date(editingReq?.date || new Date()).toISOString().slice(0, 16)}
-              onChange={(e) => setEditingReq({ ...editingReq, date: new Date(e.target.value).toISOString() })}
-            />
-          </div>
-        </div>
-
-        <div className="form-row">
-          <div className="form-group">
-            <label>Priority</label>
-            <select
-              value={editingReq?.priority || 'Medium'}
-              onChange={(e) => setEditingReq({ ...editingReq, priority: e.target.value })}
-            >
-              {['High', 'Medium', 'Low'].map(option => (
-                <option key={option} value={option}>{option}</option>
-              ))}
-            </select>
-          </div>
-          <div className="form-group">
-            <label>Complexity</label>
-            <select
-              value={editingReq?.complexity || 'Moderate'}
-              onChange={(e) => setEditingReq({ ...editingReq, complexity: e.target.value })}
-            >
-              {['High', 'Moderate', 'Low'].map(option => (
-                <option key={option} value={option}>{option}</option>
-              ))}
-            </select>
-          </div>
-          <div className="form-group">
-            <label>Estimated Hours</label>
-            <input
-              type="number"
-              min="1"
-              value={editingReq?.estimated_time || 4}
-              onChange={(e) => setEditingReq({ 
-                ...editingReq, 
-                estimated_time: Math.max(1, parseInt(e.target.value) || 1)
-              })}
-            />
-            <div className="cost-preview">
-              Estimated Cost: $
-              {((editingReq?.estimated_time || 0) * 
-               (projects.find(p => p.id === selectedProjectId)?.hourly_rate || 30)).toFixed(2)}
+      {showProjectModal && (
+        <div className="modal-overlay">
+          <div className="modal-content">
+            <h2>Create New Project</h2>
+            <div className="form-grid">
+              <div className="form-group">
+                <label>Project Name</label>
+                <input
+                  type="text"
+                  value={newProjectName}
+                  onChange={(e) => setNewProjectName(e.target.value)}
+                />
+              </div>
+              <div className="form-group">
+                <label>Description</label>
+                <textarea
+                  value={newProjectDescription}
+                  onChange={(e) => setNewProjectDescription(e.target.value)}
+                />
+              </div>
+              <div className="form-group">
+                <label>Hourly Rate ($)</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="1"
+                  value={newProjectHourlyRate}
+                  onChange={(e) => setNewProjectHourlyRate(parseFloat(e.target.value) || 30)}
+                />
+              </div>
+            </div>
+            <div className="form-actions">
+              <button onClick={() => setShowProjectModal(false)}>Cancel</button>
+              <button className="create-btn" onClick={createProject}>
+                Create Project
+              </button>
             </div>
           </div>
         </div>
+      )}
 
-        <div className="form-group">
-          <label>Categories</label>
-          <div className="category-grid">
-            {['Functional', 'Non-Functional', 'UI', 'Security', 'Performance'].map(cat => (
-              <label key={cat} className="category-option">
+      {showRenameModal && (
+        <div className="modal-overlay">
+          <div className="modal-content">
+            <h2>Edit Project</h2>
+            <div className="form-grid">
+              <div className="form-group">
+                <label>Project Name</label>
                 <input
-                  type="checkbox"
-                  checked={editingReq?.categories?.includes(cat)}
-                  onChange={(e) => {
-                    const categories = e.target.checked
-                      ? [...(editingReq.categories || []), cat]
-                      : (editingReq.categories || []).filter(c => c !== cat);
-                    setEditingReq({ ...editingReq, categories });
-                  }}
+                  type="text"
+                  value={renameProjectName}
+                  onChange={(e) => setRenameProjectName(e.target.value)}
                 />
-                {cat}
-              </label>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      <div className="form-actions">
-        <button onClick={() => setShowEditModal(false)}>Cancel</button>
-        <button className="update-btn" onClick={handleUpdateRequirement}>
-          Update Requirement
-        </button>
-      </div>
-    </div>
-  </div>
-)}
-
-{showCreateModal && (
-  <div className="modal-overlay">
-    <div className="modal-content">
-      <h2>Create New Requirement</h2>
-      <div className="form-grid">
-        <div className="form-group">
-          <label>Requirement Text</label>
-          <textarea
-            value={newRequirement.requirement}
-            onChange={(e) => setNewRequirement({ ...newRequirement, requirement: e.target.value })}
-          />
-        </div>
-
-        <div className="form-row">
-          <div className="form-group">
-            <label>Author</label>
-            <input
-              type="text"
-              value={newRequirement.author}
-              onChange={(e) => setNewRequirement({ ...newRequirement, author: e.target.value })}
-            />
-          </div>
-          <div className="form-group">
-            <label>Date & Time</label>
-            <input
-              type="datetime-local"
-              value={new Date(newRequirement.date).toISOString().slice(0, 16)}
-              onChange={(e) => setNewRequirement({ ...newRequirement, date: new Date(e.target.value).toISOString() })}
-            />
-          </div>
-        </div>
-
-        <div className="form-row">
-          <div className="form-group">
-            <label>Priority</label>
-            <select
-              value={newRequirement.priority}
-              onChange={(e) => setNewRequirement({ ...newRequirement, priority: e.target.value })}
-            >
-              {['High', 'Medium', 'Low'].map(option => (
-                <option key={option} value={option}>{option}</option>
-              ))}
-            </select>
-          </div>
-          <div className="form-group">
-            <label>Complexity</label>
-            <select
-              value={newRequirement.complexity}
-              onChange={(e) => setNewRequirement({ ...newRequirement, complexity: e.target.value })}
-            >
-              {['High', 'Moderate', 'Low'].map(option => (
-                <option key={option} value={option}>{option}</option>
-              ))}
-            </select>
-          </div>
-          <div className="form-group">
-            <label>Estimated Hours</label>
-            <input
-              type="number"
-              min="1"
-              value={newRequirement.estimated_time}
-              onChange={(e) => setNewRequirement({ 
-                ...newRequirement, 
-                estimated_time: Math.max(1, parseInt(e.target.value) || 1)
-              })}
-            />
-            <div className="cost-preview">
-              Estimated Cost: $
-              {(newRequirement.estimated_time * 
-               (projects.find(p => p.id === selectedProjectId)?.hourly_rate || 30)).toFixed(2)}
+              </div>
+              <div className="form-group">
+                <label>Description</label>
+                <textarea
+                  value={renameProjectDescription}
+                  onChange={(e) => setRenameProjectDescription(e.target.value)}
+                />
+              </div>
+              <div className="form-group">
+                <label>Hourly Rate ($)</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="1"
+                  value={renameProjectHourlyRate}
+                  onChange={(e) => setRenameProjectHourlyRate(parseFloat(e.target.value))}
+                />
+              </div>
+            </div>
+            <div className="form-actions">
+              <button onClick={() => setShowRenameModal(false)}>Cancel</button>
+              <button className="update-btn" onClick={renameProject}>
+                Update Project
+              </button>
             </div>
           </div>
         </div>
+      )}
 
-        <div className="form-group">
-          <label>Categories</label>
-          <div className="category-grid">
-            {['Functional', 'Non-Functional', 'UI', 'Security', 'Performance'].map(cat => (
-              <label key={cat} className="category-option">
-                <input
-                  type="checkbox"
-                  checked={newRequirement.categories?.includes(cat)}
-                  onChange={(e) => {
-                    const categories = e.target.checked
-                      ? [...(newRequirement.categories || []), cat]
-                      : (newRequirement.categories || []).filter(c => c !== cat);
-                    setNewRequirement({ ...newRequirement, categories });
-                  }}
+      {showEditModal && (
+        <div className="modal-overlay">
+          <div className="modal-content">
+            <h2>Edit Requirement</h2>
+            <div className="form-grid">
+              <div className="form-group">
+                <label>Requirement Text</label>
+                <textarea
+                  value={editingReq?.requirement || ''}
+                  onChange={(e) => setEditingReq({ ...editingReq, requirement: e.target.value })}
                 />
-                {cat}
-              </label>
-            ))}
+              </div>
+
+              <div className="form-row">
+                <div className="form-group">
+                  <label>Author</label>
+                  <input
+                    type="text"
+                    value={editingReq?.author || 'instructors'}
+                    onChange={(e) => setEditingReq({ ...editingReq, author: e.target.value })}
+                  />
+                </div>
+                <div className="form-group">
+                  <label>Date & Time</label>
+                  <input
+                    type="datetime-local"
+                    value={new Date(editingReq?.date || new Date()).toISOString().slice(0, 16)}
+                    onChange={(e) => setEditingReq({ ...editingReq, date: new Date(e.target.value).toISOString() })}
+                  />
+                </div>
+              </div>
+
+              <div className="form-row">
+                <div className="form-group">
+                  <label>Priority</label>
+                  <select
+                    value={editingReq?.priority || 'Medium'}
+                    onChange={(e) => setEditingReq({ ...editingReq, priority: e.target.value })}
+                  >
+                    {['High', 'Medium', 'Low'].map(option => (
+                      <option key={option} value={option}>{option}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="form-group">
+                  <label>Complexity</label>
+                  <select
+                    value={editingReq?.complexity || 'Moderate'}
+                    onChange={(e) => setEditingReq({ ...editingReq, complexity: e.target.value })}
+                  >
+                    {['High', 'Moderate', 'Low'].map(option => (
+                      <option key={option} value={option}>{option}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="form-group">
+                  <label>Estimated Hours</label>
+                  <input
+                    type="number"
+                    min="1"
+                    value={editingReq?.estimated_time || 4}
+                    onChange={(e) => setEditingReq({ 
+                      ...editingReq, 
+                      estimated_time: Math.max(1, parseInt(e.target.value) || 1)
+                    })}
+                  />
+                  <div className="cost-preview">
+                    Estimated Cost: $
+                    {((editingReq?.estimated_time || 0) * 
+                     (projects.find(p => p.id === selectedProjectId)?.hourly_rate || 30)).toFixed(2)}
+                  </div>
+                </div>
+              </div>
+
+              <div className="form-group">
+                <label>Categories</label>
+                <div className="category-grid">
+                  {['Functional', 'Non-Functional', 'UI', 'Security', 'Performance'].map(cat => (
+                    <label key={cat} className="category-option">
+                      <input
+                        type="checkbox"
+                        checked={editingReq?.categories?.includes(cat)}
+                        onChange={(e) => {
+                          const categories = e.target.checked
+                            ? [...(editingReq.categories || []), cat]
+                            : (editingReq.categories || []).filter(c => c !== cat);
+                          setEditingReq({ ...editingReq, categories });
+                        }}
+                      />
+                      {cat}
+                    </label>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div className="form-actions">
+              <button onClick={() => setShowEditModal(false)}>Cancel</button>
+              <button className="update-btn" onClick={handleUpdateRequirement}>
+                Update Requirement
+              </button>
+            </div>
           </div>
         </div>
-      </div>
+      )}
 
-      <div className="form-actions">
-        <button onClick={() => setShowCreateModal(false)}>Cancel</button>
-        <button className="create-btn" onClick={handleCreateRequirement}>
-          Create Requirement
-        </button>
-      </div>
+      {showCreateModal && (
+        <div className="modal-overlay">
+          <div className="modal-content">
+            <h2>Create New Requirement</h2>
+            <div className="form-grid">
+              <div className="form-group">
+                <label>Requirement Text</label>
+                <textarea
+                  value={newRequirement.requirement}
+                  onChange={(e) => setNewRequirement({ ...newRequirement, requirement: e.target.value })}
+                  placeholder="Enter requirement description"
+                />
+              </div>
+
+              <div className="form-row">
+                <div className="form-group">
+                  <label>Author</label>
+                  <input
+                    type="text"
+                    value={newRequirement.author}
+                    onChange={(e) => setNewRequirement({ ...newRequirement, author: e.target.value })}
+                    placeholder="instructors"
+                  />
+                </div>
+                <div className="form-group">
+                  <label>Date & Time</label>
+                  <input
+                    type="datetime-local"
+                    value={new Date(newRequirement.date).toISOString().slice(0, 16)}
+                    onChange={(e) => setNewRequirement({ ...newRequirement, date: new Date(e.target.value).toISOString() })}
+                  />
+                </div>
+              </div>
+
+              <div className="form-row">
+                <div className="form-group">
+                  <label>Priority</label>
+                  <select
+                    value={newRequirement.priority}
+                    onChange={(e) => setNewRequirement({ ...newRequirement, priority: e.target.value })}
+                  >
+                    {['High', 'Medium', 'Low'].map(option => (
+                      <option key={option} value={option}>{option}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="form-group">
+                  <label>Complexity</label>
+                  <select
+                    value={newRequirement.complexity}
+                    onChange={(e) => setNewRequirement({ ...newRequirement, complexity: e.target.value })}
+                  >
+                    {['High', 'Moderate', 'Low'].map(option => (
+                      <option key={option} value={option}>{option}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="form-group">
+                  <label>Estimated Hours</label>
+                  <input
+                    type="number"
+                    min="1"
+                    value={newRequirement.estimated_time}
+                    onChange={(e) => setNewRequirement({ 
+                      ...newRequirement, 
+                      estimated_time: Math.max(1, parseInt(e.target.value) || 1)
+                    })}
+                  />
+                  <div className="cost-preview">
+                    Estimated Cost: $
+                    {(newRequirement.estimated_time * 
+                     (projects.find(p => p.id === selectedProjectId)?.hourly_rate || 30)).toFixed(2)}
+                  </div>
+                </div>
+              </div>
+
+              <div className="form-group">
+                <label>Categories</label>
+                <div className="category-grid">
+                  {['Functional', 'Non-Functional', 'UI', 'Security', 'Performance'].map(cat => (
+                    <label key={cat} className="category-option">
+                      <input
+                        type="checkbox"
+                        checked={newRequirement.categories?.includes(cat)}
+                        onChange={(e) => {
+                          const categories = e.target.checked
+                            ? [...(newRequirement.categories || []), cat]
+                            : (newRequirement.categories || []).filter(c => c !== cat);
+                          setNewRequirement({ ...newRequirement, categories });
+                        }}
+                      />
+                      {cat}
+                    </label>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div className="form-actions">
+              <button onClick={() => setShowCreateModal(false)}>Cancel</button>
+              <button className="create-btn" onClick={handleCreateRequirement}>
+                Create Requirement
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {loading.general && <div className="loading-overlay">Processing...</div>}
     </div>
-  </div>
-)}
-
-{loading.general && <div className="loading-overlay">Processing...</div>}
-</div>
-);
+  );
 }
 
 export default Upload;
