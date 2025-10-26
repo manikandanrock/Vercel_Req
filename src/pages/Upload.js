@@ -3,7 +3,7 @@ import axios from 'axios';
 import DOMPurify from 'dompurify';
 import './Upload.css';
 
-const API_BASE_URL = 'https://ec2-52-53-255-143.us-west-1.compute.amazonaws.com';
+const API_BASE_URL = 'http://ec2-57-181-26-31.ap-northeast-1.compute.amazonaws.com';
 
 function Upload() {
   const [requirements, setRequirements] = useState([]);
